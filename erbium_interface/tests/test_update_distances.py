@@ -1,6 +1,6 @@
 import os
 from erbium_interface.seed_repetetion import update_distance
-from erbium_interface.utils import universal, trajectory
+from erbium_interface.utils import utils, trajectory
 
 class Test_update_distance():
 

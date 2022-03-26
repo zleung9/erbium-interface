@@ -1,7 +1,7 @@
 import numpy as np
 import mdtraj
 
-from erbium_interface.utils import universal, trajectory
+from erbium_interface.utils import utils, trajectory
 
 
 def calculate_ER_OP_distance(mol):
