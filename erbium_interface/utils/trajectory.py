@@ -22,8 +22,8 @@ def get_trajectories(dcd_dir):
     for f in os.listdir(dcd_dir):
         if f.endswith('.dcd'):
             prefix = f.replace('.dcd', '')
-            assert os.path.isfile(os.path.join(dcd_dir, prefix + '.pdb'))
-            assert os.path.isfile(os.path.join(dcd_dir, prefix + '.mae'))
+            if not os.path.isfile(os.path.join(dcd_dir, prefix + '.pdb')):
+                continue
         
             trajectory_list.append(prefix)
     
@@ -33,7 +33,6 @@ def get_trajectories(dcd_dir):
 def parse_trajectories(
     call,  # 
     dcd_dir = None,
-    output_dir = None,
     selected_names = None,
     logger = None,
     update = None
@@ -48,8 +47,6 @@ def parse_trajectories(
     dcd_dir : str
         The absolute path for the folder that contains all the topology 
         (.mae and .pdb) and trajecotry (.dcd) files
-    output_dir : str
-        The absolute path for the folder to save the calculations (distances).
     selected_names : list[str]
         A list of file names to be processed. Names are suffix free (e.g., do
         not contain .pdb, .mae. or.dcd). If None, process all the files in 
@@ -64,18 +61,13 @@ def parse_trajectories(
         dcd_dir = os.path.dirname(__file__)
     assert os.path.isdir(dcd_dir)
     
-    if output_dir is None:
-        output_dir = os.path.dirname(__file__)
-    if not os.path.isdir(output_dir):
-        os.mkdir(output_dir)
-    
     # define the result
-    trajectory_list = [trj for trj in get_trajectories(dcd_dir)  if trj in selected_names]
-    result = {
-        trj: None for trj in trajectory_list
-    }
+    trajectory_list = get_trajectories(dcd_dir)
+    if selected_names is not None:
+        trajectory_list = [trj for trj in trajectory_list  if trj in selected_names]
     
     # produce the result for each trajectory
+    result = {trj: None for trj in trajectory_list}
     for trj in trajectory_list:
         mol = load_molecule(
                 os.path.join(dcd_dir, trj + '.pdb'),
@@ -84,16 +76,19 @@ def parse_trajectories(
             )
         try: 
             result[trj] = call(mol)
-            logger.info(f"'{call}' applied on '{trj}'! ")
+            if logger is not None:
+                logger.info(f"'{call.__name__}' applied on '{trj}' successfully! ")
         except Exception:
-            logger.error(f"Failed --> {Exception}.")
+            if logger is not None:
+                logger.error(f"Failed --> {Exception}.")
     
     if update is None:
         result_new = result
     else:
         assert os.path.isfile(update) # make sure the file to update exists.
         result_new = update_result(load_result(update), result)
-        
+    
+       
     return result_new
 
 
