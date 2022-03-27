@@ -2,10 +2,51 @@ import os
 import pickle
 import copy
 
+import numpy as np
 import pandas as pd
 
 import vmd 
 import mdtraj
+
+def save_trajectory(
+        topology_path, 
+        trajectory_path, 
+        output_dir = None,
+        logger = None,
+    ):
+        """
+        Convert trajectories into "mad/pdb/dcd" format.
+        NOTE that only 1st shell water, DEHP molecules and Er are saved!
+        
+        Parameters
+        ----------
+        topology_path : str
+            The absolute path for ".cms" file.
+        trajectory_path : str
+            The absolute path for ".dtr" file in the _trj" folder
+        dcd_folder : str
+            The absolute path for the folder to store converted trajectory files.
+        """
+
+        # Process trajectory using vmd
+        mol_vmd = load_molecule(topology_path, trajectory_path, method = 'vmd')
+
+        # save selected atoms as pdb(topology) and dcd(trajectory)
+        sel_keep = reduce_selection(mol_vmd)
+        
+        try:
+            trj_name = trajectory_path.split('/')[-2]
+            vmd.molecule.write(mol_vmd,"mae", os.path.join(output_dir, trj_name.replace('_trj','.mae')),
+                            selection=sel_keep,last=0)
+            vmd.molecule.write(mol_vmd,"pdb", os.path.join(output_dir, trj_name.replace('_trj','.pdb')), 
+                            selection=sel_keep,last=0)
+            vmd.molecule.write(mol_vmd,"dcd", os.path.join(output_dir, trj_name.replace('_trj','.dcd')),
+                            selection=sel_keep) 
+            logger.info(f"{trj_name}:\tTrajectory saved to dcd!")
+        except:
+            logger.error(f"{trj_name}:\tSaving trajectory to dcd failed!")
+
+        vmd.molecule.delete(mol_vmd)
 
 
 def get_trajectories(dcd_dir):
@@ -57,6 +98,9 @@ def parse_trajectories(
         of data files are written to `output_dir`.
     """
     
+    if logger is not None:
+        logger.info("Started!")
+
     if dcd_dir is None:
         dcd_dir = os.path.dirname(__file__)
     assert os.path.isdir(dcd_dir)
@@ -87,8 +131,10 @@ def parse_trajectories(
     else:
         assert os.path.isfile(update) # make sure the file to update exists.
         result_new = update_result(load_result(update), result)
-    
-       
+
+    if logger is not None:
+        logger.info("Finished!")
+
     return result_new
 
 
@@ -132,3 +178,72 @@ def load_molecule(topology, trajectory, method='vmd'):
         mol.unitcell_lengths *= 10 # convert box dimensions from nm to A
     return mol
 
+
+def reduce_selection(mol, threshold=5.5):
+    '''
+    Reduce selection to: Er ion, HDEHP, water molecules within 5.5 A of Er, Cl ion
+    '''
+    num_frames = vmd.molecule.numframes(mol)
+
+    # get coordinates for Er and H2O
+    sel_Er = vmd.atomsel("element Er",molid=mol,frame=0)
+    coord_Er = get_coordinates(sel_Er,molid=mol)
+    sel_OW = vmd.atomsel("resname SPC and element O", molid=mol, frame=0)
+    coord_OW = get_coordinates(sel_OW,molid=mol)
+
+    # calculate distances between Er and all water oxygens (corrected for pierodic boundary)
+    dist_Er_OW = np.linalg.norm(get_displacement(coord_Er[:,0,:], coord_OW), axis=2)
+
+    # select the water molecule that is at least once closer than 5.5A to Er
+    select = (dist_Er_OW <= 5.5).any(axis=0)
+    selected_resid = np.array(sel_OW.resid)[select]
+    
+    # Keep Er, DEHP and selected waters for dcd trajectory
+    select_string = " or ".join(["element Er", 
+                                 "element Cl", 
+                                 "resname HDEH", 
+                                 *[f"resid {i}" for i in selected_resid]])
+    sel_keep = vmd.atomsel(select_string,molid=mol, frame=0)
+    
+    return sel_keep
+
+
+def get_coordinates(sel,molid=-1):
+    '''
+    Calculate the distance between the center of mass of "seltext1" and each member in "seltext2".
+    Default selection is made on top molecule (molid=-1) and last frame (frame=-1).
+    '''
+    # create the container for coordinates with dimensions:[total_frames,total atoms, (x,y,z)]
+    num_frames = vmd.molecule.numframes(molid)
+    coordinates = np.zeros((num_frames,len(sel),3))
+    for frame in range(num_frames):
+        sel.frame = frame 
+        coordinates[frame] = np.array([sel.x,sel.y,sel.z]).transpose()
+    return coordinates
+
+
+def get_displacement(com_A, coord_B,molid=-1):
+    '''
+    Calculate the coordinate differences with periodic boundary. 
+
+    Input:
+    ------
+    com_A: shape=(number of frames,3), xyz coordinates for the Er ion
+    coord_B: shape=(number of frames, number of selected atoms, 3), xyz coordinates for selected atoms.
+    
+    Output:
+    ------
+    displace: shape=coord_B.shape, 3-D displacement vector of coord_B w.r.t. com_A.
+    '''
+
+    volumetric = vmd.molecule.get_periodic(molid)
+    volume = [volumetric['a'], volumetric['b'], volumetric['c']]
+    vector = np.zeros(coord_B.shape)
+    for i in range(vector.shape[1]): # loop over atoms
+        for j in range(3): # loop over x,y,z
+            vector[:,i,j] = coord_B[:,i,j]-com_A[:,j] # calculate displacement
+            off = abs(vector[:,i,j]) > volume[j]/2
+            if np.sum(off) == 0: continue # no need to correct
+            correction = (abs(vector[:,i,j][off])-volume[j])*np.sign(vector[:,i,j][off])
+            vector[:,i,j][off] = correction
+    return vector
