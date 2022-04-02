@@ -92,7 +92,7 @@ def parse_trajectories(
         A list of file names to be processed. Names are suffix free (e.g., do
         not contain .pdb, .mae. or.dcd). If None, process all the files in 
         `dcd_dir`.
-    to_update : str
+    update : str
         The file to which new results are updated. It can be a dataframe,
         a python pickle file (dictionary). If not specified, usually a series
         of data files are written to `output_dir`.
@@ -140,7 +140,8 @@ def parse_trajectories(
 
 def load_result(result_path, folder_loader=None):
     """
-    a function for loading result.
+    A function for loading result.
+    
     """
     if result_path.endswith(".csv"):
         result = pd.read_csv(result_path)
