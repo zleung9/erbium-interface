@@ -8,6 +8,69 @@ import pandas as pd
 import vmd 
 import mdtraj
 
+
+class Trajectory():
+    """
+    An trajectory object read from dtr/dcd. It can be saved to dcd/pdb pairs.
+
+    """
+    def __init__(self, molecule, top_path, trj_path):
+        self.molecule = molecule
+        self.top_path = top_path
+        self.trj_path = trj_path
+        self.trj_name = None
+        self._method = None
+        self._raw = True
+
+    @classmethod
+    def from_dtr(cls, top_path, trj_path):
+        mol = load_molecule(top_path, trj_path, method='vmd')
+        trajectory = Trajectory(top_path, trj_path, mol)
+        trajectory._method = 'vmd'
+
+        return trajectory
+
+
+    @classmethod
+    def from_dcd(cls, top_path, trj_path):
+        mol = load_molecule(top_path, trj_path, method='md_traj')
+        trajectory = Trajectory(mol, top_path, trj_path)
+        trajectory._method = 'md_traj'
+
+        return trajectory
+
+
+    def save_dcd(self, logger=None):
+        """Save Trajectory as dcd/pdb/mae format.
+        """
+        assert self._method == 'vmd', "Convert Desmond trajectories only"
+        sel_keep = reduce_selection(self.molecule)
+        try:
+            vmd.molecule.write(
+                self.molecule, "mae", 
+                self.trj_path.replace('_trj','.mae'),
+                selection=sel_keep,last=0
+            )
+            vmd.molecule.write(
+                self.molecule,"pdb", 
+                self.trj_path.replace('_trj','.pdb'), 
+                selection=sel_keep,last=0
+            )
+            vmd.molecule.write(
+                self.molecule,"dcd", 
+                self.trj_path.replace('_trj','.dcd'),
+                selection=sel_keep
+            ) 
+            if logger is not None:
+                logger.info(f"{trj_name}:\tTrajectory saved to dcd!")
+        except:
+            logger.error(f"{trj_name}:\tSaving trajectory to dcd failed!")
+
+        vmd.molecule.delete(mol_vmd)
+
+
+
+
 def save_trajectory(
         topology_path, 
         trajectory_path, 
@@ -15,7 +78,7 @@ def save_trajectory(
         logger = None,
     ):
         """
-        Convert trajectories into "mad/pdb/dcd" format.
+        Convert trajectories into "mae/pdb/dcd" format.
         NOTE that only 1st shell water, DEHP molecules and Er are saved!
         
         Parameters
