@@ -9,41 +9,53 @@ import vmd
 import mdtraj
 
 
+class Distance():
+    def __init__(self):
+        self.atom_id = (None, None)
+        self.atom_name = (None, None)
+        self.name = None
+        self.time = []
+        self.distance = []
+        self.ps_per_frame = 1
+
+class Distances():
+    def __init__(self):
+        self.atom_id = (None, None)
+        self.name_list = []
+        self.distance_list = []
+    def to_numpy(self):
+        pass
+
 class Trajectory():
     """
     An trajectory object read from dtr/dcd. It can be saved to dcd/pdb pairs.
 
     """
-    def __init__(self, molecule, top_path, trj_path):
-        self.molecule = molecule
+    def __init__(self, top_path, trj_path, method, load=False):
         self.top_path = top_path
         self.trj_path = trj_path
-        self.trj_name = None
-        self._method = None
+        self._method = method
         self._raw = True
-
+        self.name = None
+        self.molecule = None
+        
+        if load:
+            self.load_molecule(self.top_path, self.trj_path, method = self._method)
+    
     @classmethod
     def from_dtr(cls, top_path, trj_path):
-        mol = load_molecule(top_path, trj_path, method='vmd')
-        trajectory = Trajectory(top_path, trj_path, mol)
-        trajectory._method = 'vmd'
-
-        return trajectory
-
+        return Trajectory(top_path, trj_path, 'vmd', load=True)
 
     @classmethod
     def from_dcd(cls, top_path, trj_path):
-        mol = load_molecule(top_path, trj_path, method='md_traj')
-        trajectory = Trajectory(mol, top_path, trj_path)
-        trajectory._method = 'md_traj'
-
-        return trajectory
+        return Trajectory(top_path, trj_path, 'md_traj', load=True)
 
 
     def save_dcd(self, logger=None):
         """Save Trajectory as dcd/pdb/mae format.
         """
         assert self._method == 'vmd', "Convert Desmond trajectories only"
+
         sel_keep = reduce_selection(self.molecule)
         try:
             vmd.molecule.write(
@@ -61,55 +73,70 @@ class Trajectory():
                 self.trj_path.replace('_trj','.dcd'),
                 selection=sel_keep
             ) 
+            vmd.molecule.delete(self.molecule)
             if logger is not None:
-                logger.info(f"{trj_name}:\tTrajectory saved to dcd!")
+                logger.info(f"{self.name}:\tTrajectory saved to dcd!")
         except:
-            logger.error(f"{trj_name}:\tSaving trajectory to dcd failed!")
+            if logger is not None:
+                logger.error(f"{self.name}:\tSaving trajectory to dcd failed!")
+            vmd.molecule.delete(self.molecule)
+            raise
 
-        vmd.molecule.delete(mol_vmd)
+       
+    def load_molecule(self, topology, trajectory, method='vmd'):
+        '''
+        Load molecule using vmd or md_traj.
+        '''
+        if method == 'vmd':
+            mol = vmd.molecule.load("mae", topology)
+            vmd.molecule.read(mol, "dtr", trajectory,waitfor = -1)
+            vmd.molecule.delframe(mol,0,0,0) # The ".cms" file only provide topology, not positions.
+        elif method == 'md_traj':
+            mol = mdtraj.load(trajectory, top = topology)
+            mol.xyz *= 10 # convert coordinates from nm to A
+            mol.unitcell_lengths *= 10 # convert box dimensions from nm to A
+
+        self.molecule = mol
+    
+    def delete_molecule(self):
+        del self.molecule
+        self.molecule = None
 
 
-
-
-def save_trajectory(
-        topology_path, 
-        trajectory_path, 
-        output_dir = None,
-        logger = None,
-    ):
+    def get_distance(self):
+        """Return a Distance object.
         """
-        Convert trajectories into "mae/pdb/dcd" format.
-        NOTE that only 1st shell water, DEHP molecules and Er are saved!
+        return Distance()
+
+
+class Trajectories():
+
+    def __init__(self, name_list=[], trj_list=[]):
+        self.name_list = name_list
+        self.trj_list = trj_list
+    
+    @classmethod
+    def from_folder(cls, trj_dir):
+        trj_list = []
+        name_list = []
+        for path_ in os.listdir(trj_dir):
+            if path_.endswith('.dcd'):
+                trj_path = path_
+                top_path = path_.replace('.dcd', '.pdb')
+                if not os.path.isfile(os.path.join(top_path)):
+                    continue
+
+                trj_list.append(
+                    Trajectory.from_dcd(top_path, trj_path)
+                )
+            
+        return Trajectories(name_list, trj_list)
+    
+    def get_distances(self):
+        for trj in self.trj_list:
+            trj.get_distance
+
         
-        Parameters
-        ----------
-        topology_path : str
-            The absolute path for ".cms" file.
-        trajectory_path : str
-            The absolute path for ".dtr" file in the _trj" folder
-        dcd_folder : str
-            The absolute path for the folder to store converted trajectory files.
-        """
-
-        # Process trajectory using vmd
-        mol_vmd = load_molecule(topology_path, trajectory_path, method = 'vmd')
-
-        # save selected atoms as pdb(topology) and dcd(trajectory)
-        sel_keep = reduce_selection(mol_vmd)
-        
-        try:
-            trj_name = trajectory_path.split('/')[-2]
-            vmd.molecule.write(mol_vmd,"mae", os.path.join(output_dir, trj_name.replace('_trj','.mae')),
-                            selection=sel_keep,last=0)
-            vmd.molecule.write(mol_vmd,"pdb", os.path.join(output_dir, trj_name.replace('_trj','.pdb')), 
-                            selection=sel_keep,last=0)
-            vmd.molecule.write(mol_vmd,"dcd", os.path.join(output_dir, trj_name.replace('_trj','.dcd')),
-                            selection=sel_keep) 
-            logger.info(f"{trj_name}:\tTrajectory saved to dcd!")
-        except:
-            logger.error(f"{trj_name}:\tSaving trajectory to dcd failed!")
-
-        vmd.molecule.delete(mol_vmd)
 
 
 def get_trajectories(dcd_dir):
@@ -226,21 +253,6 @@ def update_result(old_result, incoming):
         new_result[key] = value
     
     return new_result
-
-
-def load_molecule(topology, trajectory, method='vmd'):
-    '''
-    Load molecule using vmd or md_traj.
-    '''
-    if method == 'vmd':
-        mol = vmd.molecule.load("mae", topology)
-        vmd.molecule.read(mol, "dtr", trajectory,waitfor = -1)
-        vmd.molecule.delframe(mol,0,0,0) # The ".cms" file only provide topology, not positions.
-    elif method == 'md_traj':
-        mol = mdtraj.load(trajectory, top = topology)
-        mol.xyz *= 10 # convert coordinates from nm to A
-        mol.unitcell_lengths *= 10 # convert box dimensions from nm to A
-    return mol
 
 
 def reduce_selection(mol, threshold=5.5):
