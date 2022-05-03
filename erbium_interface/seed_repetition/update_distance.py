@@ -122,7 +122,7 @@ def main():
 
     # calculate distances
     result = trajectory.parse_trajectories(
-        calculate_ER_OP_distance,
+        calculate_ER_P_distance,
         dcd_dir = dcd_dir,
         selected_names = trajectory_list,
         logger = logger
