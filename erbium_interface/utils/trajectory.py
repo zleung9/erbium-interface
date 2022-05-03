@@ -136,8 +136,6 @@ class Trajectories():
         for trj in self.trj_list:
             trj.get_distance
 
-        
-
 
 def get_trajectories(dcd_dir):
     """
@@ -323,3 +321,19 @@ def get_displacement(com_A, coord_B,molid=-1):
             correction = (abs(vector[:,i,j][off])-volume[j])*np.sign(vector[:,i,j][off])
             vector[:,i,j][off] = correction
     return vector
+
+
+def load_molecule(topology, trajectory, method='vmd'):
+    '''
+    Load molecule using vmd or md_traj.
+    '''
+    if method == 'vmd':
+        mol = vmd.molecule.load("mae", topology)
+        vmd.molecule.read(mol, "dtr", trajectory,waitfor = -1)
+        vmd.molecule.delframe(mol,0,0,0) # The ".cms" file only provide topology, not positions.
+    elif method == 'md_traj':
+        mol = mdtraj.load(trajectory, top = topology)
+        mol.xyz *= 10 # convert coordinates from nm to A
+        mol.unitcell_lengths *= 10 # convert box dimensions from nm to A
+
+    return mol
