@@ -16,7 +16,9 @@ class Test_trajectory():
         assert 'md_20220308_1_3' in trajectory_list
         assert 'md_20220308_1_4' in trajectory_list
         assert 'md_20220308_1_5' in trajectory_list
-
+    
+    def test_load_Trajectory_instance_from_file(self):
+        pass
 
 
 

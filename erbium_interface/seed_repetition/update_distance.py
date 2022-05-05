@@ -37,6 +37,38 @@ def calculate_ER_OP_distance(mol):
     return np.hstack((mol.time.reshape(-1,1), distance_Er_ODEH))
 
 
+def calculate_ER_P_distance(mol):
+    """
+    Calculate the distances between Er and Phsphate over all
+    frames.
+    It can be extended to calculated distances between multiple pairs.
+
+    Parameters
+    ----------
+    mol : md_traj molecules object.
+        The molecule to calculate distances on.
+    
+    Returns
+    -------
+    distance : array_like
+        The 2-col distance arrays between Er and Phosphate atom in DEHP
+        for all frames. col1 is frame indices (0-indexed), the second column is
+        distance values.
+    """
+
+    # Identify the Oxygen atom in DEHP that binds to Er
+    top = mol.topology 
+    Er = top.select("type==Er")
+    P = top.select("type==P")
+    distance_Er_P = mdtraj.compute_distances(
+        mol,
+        np.array([[Er[0],P[0]]]),
+        periodic=True
+    )
+    
+    return np.hstack((mol.time.reshape(-1,1), distance_Er_P))
+
+
 def to_dataframe(result):
 
     """
@@ -90,7 +122,7 @@ def main():
 
     # calculate distances
     result = trajectory.parse_trajectories(
-        calculate_ER_OP_distance,
+        calculate_ER_P_distance,
         dcd_dir = dcd_dir,
         selected_names = trajectory_list,
         logger = logger
