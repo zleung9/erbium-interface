@@ -1,30 +1,16 @@
 import os
 import pickle
 import copy
-
 import numpy as np
 import pandas as pd
 
 import vmd 
 import mdtraj
 
-
-class Distance():
-    def __init__(self):
-        self.atom_id = (None, None)
-        self.atom_name = (None, None)
-        self.name = None
-        self.time = []
-        self.distance = []
-        self.ps_per_frame = 1
-
-class Distances():
-    def __init__(self):
-        self.atom_id = (None, None)
-        self.name_list = []
-        self.distance_list = []
-    def to_numpy(self):
-        pass
+from erbium_interface.utils.distance import (
+    Distance, ErSPCDistance, ErPDistance, 
+    Distances, ErSPCDistances, ErPDistances
+)
 
 class Trajectory():
     """
@@ -97,19 +83,55 @@ class Trajectory():
             mol.unitcell_lengths *= 10 # convert box dimensions from nm to A
 
         self.molecule = mol
+
     
     def delete_molecule(self):
         del self.molecule
         self.molecule = None
 
 
-    def get_distance(self):
-        """Return a Distance object.
+    def get_distance(self, sel1, sel2):
+        """Return a Distance object between two groups of atoms specified by 'sel1' and 'sel2', respectively.
+        Paramters
+        ---------
+        sel1 : str
+            The selection str for the first group of atoms. It must be of `md_traj` convention (not `vmd`)
+        sel2 : str
+            The selection str for the first group of atoms. It must be of `md_traj` convention (not `vmd`)
+        frame_range : tuple[int, int]
+            The starting and ending frame of frame range for which the distance is calcuated.
         """
-        return Distance()
+
+        # Identify the Oxygen atom in DEHP that binds to Er
+        top = self.molecule.topology 
+        
+        atom_pairs = []
+        for atom_idx1 in top.select(sel1) :
+            for atom_idx2 in top.select(sel2):
+               atom_pairs.append([atom_idx1, atom_idx2])
+        
+        distances = mdtraj.compute_distances(self.molecule, atom_pairs, periodic=True)
+        assert distances.shape[0] == self.molecule.n_frames
+        assert distances.shape[1] == len(atom_pairs)
+
+        distance_list = []
+        for pair, distance in zip(atom_pairs, distances.T):
+            distance_list.append(
+                Distance("no_name", pair, distance)
+            )
+        
+        return Distances(atom_pairs, distance_list)
+
+    def get_ErSPCdistance(self, sel1, sel2):
+        return ErSPCDistances.from_parent(self.get_distance(sel1, sel2), ErSPCDistance)
+
+    def get_ErPdistance(self, sel1, sel2):
+        return ErPDistances.from_parent(self.get_distance(sel1, sel2), ErPDistance)
 
 
 class Trajectories():
+    """ A container of Trajectory objects which is useful for batch processing.
+    """
 
     def __init__(self, name_list=[], trj_list=[]):
         self.name_list = name_list
@@ -132,9 +154,23 @@ class Trajectories():
             
         return Trajectories(name_list, trj_list)
     
-    def get_distances(self):
-        for trj in self.trj_list:
-            trj.get_distance
+    def __iter__(self):
+        return self.trj_list
+
+    def distance_dataframe(self, sel1, sel2):
+        pairs_list = []
+        distances_list = []
+        for trajectory in self.trj_list:
+            pairs, distances = trajectory.get_distance(sel1, sel2)
+            pairs_list.append(pairs)
+            distances_list.append(distances)
+        
+        
+        # return pd.DataFrame(
+        #     data = np.array([for dist in distance_list]),
+        #     columns = [f"FR{int(f):04d}" for f in range(len(self.data))]
+        # )
+
 
 
 def get_trajectories(dcd_dir):
