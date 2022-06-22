@@ -17,25 +17,18 @@ class Trajectory():
     An trajectory object read from dtr/dcd. It can be saved to dcd/pdb pairs.
 
     """
-    def __init__(self, top_path, trj_path, method, load=False):
+    def __init__(self, top_path, trj_path, name=None):
         self.top_path = top_path
         self.trj_path = trj_path
-        self._method = method
         self._raw = True
-        self.name = None
+        self.name = name
         self.molecule = None
-        
-        if load:
-            self.load_molecule(self.top_path, self.trj_path, method = self._method)
+        self.frames = None
     
-    @classmethod
-    def from_dtr(cls, top_path, trj_path):
-        return Trajectory(top_path, trj_path, 'vmd', load=True)
-
-    @classmethod
-    def from_dcd(cls, top_path, trj_path):
-        return Trajectory(top_path, trj_path, 'md_traj', load=True)
-
+        if self.trj_path.endswith('dtr') and self.top_path.endswith('cms'):
+                self._method = 'vmd'
+        elif self.trj_path.endswith('dcd') and self.top_path.endswith('pdb'):
+            self._method = 'md_traj'
 
     def save_dcd(self, logger=None):
         """Save Trajectory as dcd/pdb/mae format.
@@ -69,26 +62,27 @@ class Trajectory():
             raise
 
        
-    def load_molecule(self, topology, trajectory, method='vmd'):
+    def load_molecule(self, method='vmd'):
         '''
         Load molecule using vmd or md_traj.
         '''
         if method == 'vmd':
-            mol = vmd.molecule.load("mae", topology)
-            vmd.molecule.read(mol, "dtr", trajectory,waitfor = -1)
+            mol = vmd.molecule.load("mae", self.top_path)
+            vmd.molecule.read(mol, "dtr", self.trj_path, waitfor = -1)
             vmd.molecule.delframe(mol,0,0,0) # The ".cms" file only provide topology, not positions.
         elif method == 'md_traj':
-            mol = mdtraj.load(trajectory, top = topology)
+            mol = mdtraj.load(self.trj_path, top = self.top_path)
             mol.xyz *= 10 # convert coordinates from nm to A
             mol.unitcell_lengths *= 10 # convert box dimensions from nm to A
 
         self.molecule = mol
+        self.frames = np.arange(self.molecule.n_frames)
 
     
     def delete_molecule(self):
         del self.molecule
         self.molecule = None
-
+        self.frames = None
 
     def get_distance(self, sel1, sel2):
         """Return a Distance object between two groups of atoms specified by 'sel1' and 'sel2', respectively.
@@ -103,6 +97,7 @@ class Trajectory():
         """
 
         # Identify the Oxygen atom in DEHP that binds to Er
+        assert self.molecule is not None, "Please load molecule first!"
         top = self.molecule.topology 
         
         atom_pairs = []
@@ -120,7 +115,7 @@ class Trajectory():
                 Distance("no_name", pair, distance)
             )
         
-        return Distances(atom_pairs, distance_list)
+        return Distances(distance_list)
 
     def get_ErSPCdistance(self, sel1, sel2):
         return ErSPCDistances.from_parent(self.get_distance(sel1, sel2), ErSPCDistance)
@@ -141,29 +136,42 @@ class Trajectories():
     def from_folder(cls, trj_dir):
         trj_list = []
         name_list = []
-        for path_ in os.listdir(trj_dir):
-            if path_.endswith('.dcd'):
-                trj_path = path_
-                top_path = path_.replace('.dcd', '.pdb')
-                if not os.path.isfile(os.path.join(top_path)):
-                    continue
-
-                trj_list.append(
-                    Trajectory.from_dcd(top_path, trj_path)
-                )
+        for file_ in os.listdir(trj_dir):
+            if not file_.endswith('.dcd'):
+                continue
+            
+            trj_path = os.path.join(trj_dir, file_)
+            top_path = trj_path.replace('.dcd', '.pdb')
+            if not os.path.isfile(top_path):
+                continue
+            name = file_.replace('.dcd','')
+            name_list.append(name)
+            trj_list.append(Trajectory(top_path, trj_path, name=name))
             
         return Trajectories(name_list, trj_list)
-    
-    def __iter__(self):
-        return self.trj_list
 
-    def distance_dataframe(self, sel1, sel2):
-        pairs_list = []
+    def __getitem__(self, item):
+        if isinstance(item, int):
+            return self.trj_list[item]
+
+    def __iter__(self):
+        return iter(self.trj_list)
+
+    def __len__(self):
+        return len(self.trj_list)
+
+    def get_distances(self, sel1, sel2, ipypar=None):
         distances_list = []
-        for trajectory in self.trj_list:
-            pairs, distances = trajectory.get_distance(sel1, sel2)
-            pairs_list.append(pairs)
-            distances_list.append(distances)
+        num_trajectories = self.__len__()
+        for i, trajectory in enumerate(self.trj_list):
+            if trajectory.molecule is None:
+                trajectory.load()
+            distances_object = trajectory.get_distance(sel1, sel2)
+            for distance_object in distances_object:
+                distances_list.append(distance_object)
+            trajectory.delete_molecule()
+            print(f"{i+1:04d}/{num_trajectories} processed.", end='\r', flush=True)
+        return Distances(distances_list)
         
         
         # return pd.DataFrame(

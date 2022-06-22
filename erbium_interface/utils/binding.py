@@ -132,7 +132,7 @@ def vertical_sum(correlation_list, mean=True):
     Parameters
     ----------
     correlation_list : list
-        The input list of lists (see the example above)
+        The input list of lists (see the example above). The sublist can contain any number.
     mean : bool
         If true return mean, otherwise return sum.
 
