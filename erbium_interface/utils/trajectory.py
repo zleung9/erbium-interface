@@ -22,7 +22,7 @@ class Trajectory():
         self.trj_path = trj_path
         self._raw = True
         self.name = name
-        self.molecule = None
+        self.trajectory = None
         self.frames = None
     
         if self.trj_path.endswith('dtr') and self.top_path.endswith('cms'):
@@ -35,30 +35,30 @@ class Trajectory():
         """
         assert self._method == 'vmd', "Convert Desmond trajectories only"
 
-        sel_keep = reduce_selection(self.molecule)
+        sel_keep = reduce_selection(self.trajectory)
         try:
             vmd.molecule.write(
-                self.molecule, "mae", 
+                self.trajectory, "mae", 
                 self.trj_path.replace('_trj','.mae'),
                 selection=sel_keep,last=0
             )
             vmd.molecule.write(
-                self.molecule,"pdb", 
+                self.trajectory,"pdb", 
                 self.trj_path.replace('_trj','.pdb'), 
                 selection=sel_keep,last=0
             )
             vmd.molecule.write(
-                self.molecule,"dcd", 
+                self.trajectory,"dcd", 
                 self.trj_path.replace('_trj','.dcd'),
                 selection=sel_keep
             ) 
-            vmd.molecule.delete(self.molecule)
+            vmd.molecule.delete(self.trajectory)
             if logger is not None:
                 logger.info(f"{self.name}:\tTrajectory saved to dcd!")
         except:
             if logger is not None:
                 logger.error(f"{self.name}:\tSaving trajectory to dcd failed!")
-            vmd.molecule.delete(self.molecule)
+            vmd.molecule.delete(self.trajectory)
             raise
 
        
@@ -75,13 +75,13 @@ class Trajectory():
             mol.xyz *= 10 # convert coordinates from nm to A
             mol.unitcell_lengths *= 10 # convert box dimensions from nm to A
 
-        self.molecule = mol
-        self.frames = np.arange(self.molecule.n_frames)
+        self.trajectory = mol
+        self.frames = np.arange(self.trajectory.n_frames)
 
     
     def delete_molecule(self):
-        del self.molecule
-        self.molecule = None
+        del self.trajectory
+        self.trajectory = None
         self.frames = None
 
     def get_distance(self, sel1, sel2):
@@ -97,16 +97,16 @@ class Trajectory():
         """
 
         # Identify the Oxygen atom in DEHP that binds to Er
-        assert self.molecule is not None, "Please load molecule first!"
-        top = self.molecule.topology 
+        assert self.trajectory is not None, "Please load trajectory first!"
+        top = self.trajectory.topology 
         
         atom_pairs = []
         for atom_idx1 in top.select(sel1) :
             for atom_idx2 in top.select(sel2):
                atom_pairs.append([atom_idx1, atom_idx2])
         
-        distances = mdtraj.compute_distances(self.molecule, atom_pairs, periodic=True)
-        assert distances.shape[0] == self.molecule.n_frames
+        distances = mdtraj.compute_distances(self.trajectory, atom_pairs, periodic=True)
+        assert distances.shape[0] == self.trajectory.n_frames
         assert distances.shape[1] == len(atom_pairs)
 
         distance_list = []
@@ -164,7 +164,7 @@ class Trajectories():
         distances_list = []
         num_trajectories = self.__len__()
         for i, trajectory in enumerate(self.trj_list):
-            if trajectory.molecule is None:
+            if trajectory.trajectory is None:
                 trajectory.load()
             distances_object = trajectory.get_distance(sel1, sel2)
             for distance_object in distances_object:
