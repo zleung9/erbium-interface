@@ -126,19 +126,24 @@ class ErPDistance(Distance):
     def get_frame_upon_binding(self, threshold=4.3):
         """ Equivalently find the last frame that distance is bigger than threshold, after which
         the P atom will not return above threshold.
-        If no binding happens, return -1.
+        If no binding happens, return None.
         """
         try:
             self.binding_frame = np.where(self._data >= threshold)[0][-1]
         except:
-            self.binding_frame = -1
+            self.binding_frame = None
         return self.binding_frame
     
     def get_frame_upon_arriving_at(self, threshold=4.3):
         """Equivalently find the first frame that distance is no bigger than threshold, or the frame
         where the distance **first** reaches the threshold.
+        If the distance never get closer to threshold, return None.
         """
-        return np.where(self._data <= threshold)[0][0]
+        try:
+            self.arriving_frame = np.where(self._data <= threshold)[0][0]
+        except:
+            self.arriving_frame = None
+        return self.arriving_frame
 
 class Distances():
     def __init__(self, distance_list):
@@ -182,7 +187,7 @@ class Distances():
     def to_numpy(self, start=None, end=None, smooth=0):
         if start is None:
             start = 0
-        if end is None:
+        if end is None or (end > self.num_frame):
             end = self.num_frame
         data =  np.stack(
             [distance.data[start:end] for distance in self._distance_list]
@@ -235,6 +240,8 @@ class ErSPCDistances(Distances):
         Get a Distances object that contains waters in the first shell for a given frame.
         """
         assert frame is not None
+        if frame < 0:
+            frame = 0
         dist_array = self.to_numpy(start=frame, end=frame+1).reshape(-1,)
         return self.__getitem__((dist_array <= threshold))
 
