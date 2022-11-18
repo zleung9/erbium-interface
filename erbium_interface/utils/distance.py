@@ -1,6 +1,6 @@
-
 import numpy as np
 import pandas as pd
+import erbium_interface.utils as utils
 
 class Distance():
     def __init__(self, name, pair, distance):
@@ -41,6 +41,46 @@ class Distance():
     def to_numpy(self):
         return self._data
     
+    def get_correlation(self, threshold=0, ascending=True):
+        """
+        Find the correlation function for a single trajectory.
+
+        Parameters
+        ----------
+        threshold : float
+            The threshold of distance.
+        ascending : bool
+            If true, approaching the threshold from further away.
+
+        Returns
+        -------
+        signs_array : array_like
+            The 2-col signes array of the same shape as `distance_array`.
+            Col1 is the index that signs turned 1 for the first time
+            Col2 is the sign of the threshold-distance.
+        """
+
+        distance = self._data
+
+        if not ascending: # flip the sign if descending
+            distance = -distance
+        
+        traj_signs = np.zeros_like(distance)    
+        traj_signs[distance <= threshold] = 1
+        
+        # find out the index where the signs first turns 1
+        length = len(traj_signs)
+        index = 0
+        while not traj_signs[index]:
+            index += 1
+            if index == length: # never reached threshold
+                index_1st_nonzero = -1 
+                break
+        else:
+            index_1st_nonzero = index
+        
+        return (index_1st_nonzero, traj_signs)
+
 
 class ErSPCDistance(Distance):
     
@@ -145,6 +185,7 @@ class ErPDistance(Distance):
             self.arriving_frame = None
         return self.arriving_frame
 
+
 class Distances():
     def __init__(self, distance_list):
         # A list of the indices of atoms for which the distance is calculated.
@@ -208,22 +249,45 @@ class Distances():
         )
         return df
 
-    def reaction_flux(self, threshold=None, direction='out'):
+    def get_correlation(
+        self, 
+        threshold = 0,
+        ascending = True, 
+        align_zero = True,
+        mean = True
+    ):
+        
         """
-        The reaction flux correlation is calculated as the following: 
-        For each `Distance` in `Distances`, calculate 
-        Parameters
-        ----------
-        direction : str
-            If "out", assign frames where the distance is larger than the threshold to be 1, other 
-            frames to be 0. If "in" assign frames where the distance is smaller than the threshold 
-            to be 1, other frames to be 0.
-        Returns
-        -------
-        The reaction flux coorelation
+        Return the `vertical_sum` result for all the trajectories in `result`.
         """
-        assert not threshold is None
-        pass
+        
+        correlation_list = []
+
+        for distance in self._distance_list:
+            zero_index, signs = distance.get_correlation(
+                threshold = threshold, 
+                ascending = ascending
+            )
+            if not align_zero: 
+                zero_index = 0 # do not zero the index 
+            if zero_index == -1: 
+                    continue # doesnot append if  the trajectory didn't reach the threshold
+            correlation_list.append(signs[zero_index:])
+
+        if len(correlation_list) == 0: # no trajectory reached this threshold
+            return None
+
+        max_length, correlation_sum, correlation_std = utils.vertical_sum(correlation_list, mean=mean) 
+        
+        result =  np.stack(
+            [
+                np.arange(max_length), # the frames counting from the first non-zero index
+                correlation_sum, # the averaged sign: correlation function
+                correlation_std,  # the standard deviation of the correlation function.
+            ], axis= 1
+        )
+
+        return result
 
 class ErSPCDistances(Distances):
     
